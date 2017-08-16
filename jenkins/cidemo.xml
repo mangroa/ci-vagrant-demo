@@ -1,0 +1,85 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.12.1">
+    <actions>
+        <io.jenkins.blueocean.service.embedded.BlueOceanUrlAction plugin="blueocean-rest-impl@1.1.5">
+            <blueOceanUrlObject class="io.jenkins.blueocean.service.embedded.BlueOceanUrlObjectImpl">
+                <mappedUrl>blue/organizations/jenkins/ContinuousIntegrationDemo_v2</mappedUrl>
+            </blueOceanUrlObject>
+        </io.jenkins.blueocean.service.embedded.BlueOceanUrlAction>
+    </actions>
+    <description></description>
+    <keepDependencies>false</keepDependencies>
+    <properties>
+        <jenkins.model.BuildDiscarderProperty>
+            <strategy class="hudson.tasks.LogRotator">
+                <daysToKeep>5</daysToKeep>
+                <numToKeep>5</numToKeep>
+                <artifactDaysToKeep>-1</artifactDaysToKeep>
+                <artifactNumToKeep>-1</artifactNumToKeep>
+            </strategy>
+        </jenkins.model.BuildDiscarderProperty>
+        <com.coravy.hudson.plugins.github.GithubProjectProperty plugin="github@1.27.0">
+            <projectUrl>https://github.com/mangroa/cidemo.git/</projectUrl>
+            <displayName></displayName>
+        </com.coravy.hudson.plugins.github.GithubProjectProperty>
+        <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+            <triggers>
+                <com.cloudbees.jenkins.GitHubPushTrigger plugin="github@1.27.0">
+                    <spec></spec>
+                </com.cloudbees.jenkins.GitHubPushTrigger>
+            </triggers>
+        </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+    </properties>
+    <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.37">
+        <script>
+            node {
+            stage(&apos;Preparation&apos;) { // for display purposes
+            // Get some code from a GitHub repository
+            git &apos;https://github.com/mangroa/cidemo.git&apos;
+            sh &quot;git clean -f &amp;&amp; git reset --hard origin/master&quot;
+            //sh &quot;git tag -l | xargs git tag -d&quot;
+            // Get the Maven tool.
+            // ** NOTE: This &apos;M3&apos; Maven tool must be configured
+            // **       in the global configuration.
+            mvnHome = tool &apos;M3&apos;
+            pom = readMavenPom file: &apos;pom.xml&apos;
+            version = pom.version.replace(&quot;-SNAPSHOT&quot;, &quot;.${currentBuild.number}&quot;)
+            sh &quot;echo Prepare version numbers&quot;
+            sh &quot;echo ${pom}&quot;
+            sh &quot;echo ${version}&quot;
+            }
+            }
+
+
+            node {
+            stage(&apos;Build &amp; Test&apos;) {
+            // Run the maven test stage
+            sh &quot;&apos;${mvnHome}/bin/mvn&apos; -Dmaven.test.failure.ignore=false test&quot;
+            }
+            stage(&apos;Deploy to Nexus&apos;) {
+            // Run the maven build
+            sh &quot;${mvnHome}/bin/mvn --settings settings.xml -Darguments=-DskipTests -DreleaseVersion=${version} -DdevelopmentVersion=${pom.version} -DpushChanges=false -DlocalCheckout=true -DpreparationGoals=initialize release:prepare release:perform -B&quot;
+            withCredentials([usernamePassword(credentialsId: &apos;alangit&apos;, passwordVariable: &apos;GIT_PASSWORD&apos;, usernameVariable: &apos;GIT_USERNAME&apos;)]) {
+            sh(&apos;git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/mangroa/cidemo.git --tags&apos;)
+            }
+            }
+            }
+
+            input &apos;Proceed to UAT deployment?&apos;
+            node {
+            stage (&apos;Deploy to UAT&apos;) {
+            sh &quot;echo &apos;About to deploy to UAT environment&apos;&quot;
+            //git &apos;push origin ${pom.artifactId}-${version}&apos;
+
+
+            }
+            stage(&apos;Results&apos;) {
+            junit &apos;**/target/surefire-reports/TEST-*.xml&apos;
+            archive &apos;target/*.jar&apos;
+            }
+            }</script>
+        <sandbox>true</sandbox>
+    </definition>
+    <triggers/>
+    <disabled>false</disabled>
+</flow-definition>
